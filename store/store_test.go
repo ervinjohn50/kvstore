@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestSetAndGet(t *testing.T) {
 	s := New()
@@ -51,5 +54,45 @@ func TestOverwrite(t *testing.T) {
 	}
 	if val != "bob" {
 		t.Fatalf("expected 'bob', got '%s'", val)
+	}
+}
+
+func TestSetWithTTL(t *testing.T) {
+	s := New()
+	s.SetWithTTL("token", "abc123", 1*time.Second)
+
+	val, ok := s.Get("token")
+	if !ok {
+		t.Fatal("expected key 'token' to exist before expiry")
+	}
+	if val != "abc123" {
+		t.Fatalf("expected 'abc123', got '%s'", val)
+	}
+}
+
+func TestKeyExpires(t *testing.T) {
+	s := New()
+	s.SetWithTTL("token", "abc123", 50*time.Millisecond)
+
+	time.Sleep(100 * time.Millisecond)
+
+	_, ok := s.Get("token")
+	if ok {
+		t.Fatal("expected key 'token' to be expired")
+	}
+}
+
+func TestSetWithoutTTLNeverExpires(t *testing.T) {
+	s := New()
+	s.Set("name", "alice")
+
+	time.Sleep(50 * time.Millisecond)
+
+	val, ok := s.Get("name")
+	if !ok {
+		t.Fatal("expected key 'name' to still exist")
+	}
+	if val != "alice" {
+		t.Fatalf("expected 'alice', got '%s'", val)
 	}
 }
