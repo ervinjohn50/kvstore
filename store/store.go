@@ -7,20 +7,18 @@ import (
 
 type entry struct {
 	value     string
-	expiresAt time.Time
-	// hasTTL distinguishes "no expiration" from "expires at zero time"
-	hasTTL bool
+	expiresAt time.Time // zero means no expiration
 }
 
 // Store is a thread-safe in-memory key-value store with optional TTL support.
-// It uses lazy expiration. expired keys are only cleaned up when accessed,
+// It uses lazy expiration. Expired keys are only cleaned up when accessed,
 // avoiding the overhead of a background cleanup goroutine.
 type Store struct {
-	// RWMutex allows concurrent reads but exclusive writes
-	mu   sync.RWMutex
+	mu   sync.Mutex
 	data map[string]entry
 }
 
+// New returns an empty Store.
 func New() *Store {
 	return &Store{
 		data: make(map[string]entry),
@@ -41,12 +39,10 @@ func (s *Store) SetWithTTL(key, value string, ttl time.Duration) {
 	s.data[key] = entry{
 		value:     value,
 		expiresAt: time.Now().Add(ttl),
-		hasTTL:    true,
 	}
 }
 
 // Get retrieves a value by key. Returns false if the key doesn't exist or has expired.
-// Uses a write lock instead of a read lock because it may delete expired keys (lazy expiration).
 func (s *Store) Get(key string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -56,7 +52,7 @@ func (s *Store) Get(key string) (string, bool) {
 		return "", false
 	}
 
-	if e.hasTTL && time.Now().After(e.expiresAt) {
+	if !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
 		delete(s.data, key)
 		return "", false
 	}
@@ -64,6 +60,7 @@ func (s *Store) Get(key string) (string, bool) {
 	return e.value, true
 }
 
+// Delete removes a key. Deleting a missing key is a no-op.
 func (s *Store) Delete(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
