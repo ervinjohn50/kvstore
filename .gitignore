@@ -1,0 +1,12 @@
+# Binary from `go build`
+/kvstore
+
+# Test binaries and coverage output
+*.test
+*.out
+
+# Local secrets
+.env
+
+# macOS
+.DS_Store
