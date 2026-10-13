@@ -102,7 +102,12 @@ func (srv *Server) execute(w io.Writer, args []string) {
 		}
 		var deleted int64
 		for _, key := range args[1:] {
-			if srv.store.Delete(key) {
+			ok, err := srv.store.Delete(key)
+			if err != nil {
+				resp.WriteError(w, "ERR "+err.Error())
+				return
+			}
+			if ok {
 				deleted++
 			}
 		}
@@ -122,18 +127,24 @@ func (srv *Server) set(w io.Writer, args []string) {
 	}
 	key, value := args[1], args[2]
 
+	var err error
 	switch {
 	case len(args) == 3:
-		srv.store.Set(key, value)
+		err = srv.store.Set(key, value)
 	case len(args) == 5 && strings.EqualFold(args[3], "EX"):
-		secs, err := strconv.ParseInt(args[4], 10, 64)
-		if err != nil || secs <= 0 || secs > maxTTLSeconds {
+		secs, parseErr := strconv.ParseInt(args[4], 10, 64)
+		if parseErr != nil || secs <= 0 || secs > maxTTLSeconds {
 			resp.WriteError(w, "ERR invalid expire time in 'set' command")
 			return
 		}
-		srv.store.SetWithTTL(key, value, time.Duration(secs)*time.Second)
+		err = srv.store.SetWithTTL(key, value, time.Duration(secs)*time.Second)
 	default:
 		resp.WriteError(w, "ERR syntax error")
+		return
+	}
+
+	if err != nil {
+		resp.WriteError(w, "ERR "+err.Error())
 		return
 	}
 	resp.WriteSimpleString(w, "OK")

@@ -6,6 +6,9 @@
 *.test
 *.out
 
+# Data files from -aof
+*.aof
+
 # Local secrets
 .env
 

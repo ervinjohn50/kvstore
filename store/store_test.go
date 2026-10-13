@@ -48,8 +48,8 @@ func TestDelete(t *testing.T) {
 	s := New(0)
 	s.Set("name", "alice")
 
-	if !s.Delete("name") {
-		t.Fatal("expected Delete to report that 'name' existed")
+	if deleted, err := s.Delete("name"); err != nil || !deleted {
+		t.Fatalf("expected Delete to report that 'name' existed, got %v, %v", deleted, err)
 	}
 	if _, ok := s.Get("name"); ok {
 		t.Fatal("expected key 'name' to be deleted")
@@ -58,8 +58,8 @@ func TestDelete(t *testing.T) {
 
 func TestDeleteMissing(t *testing.T) {
 	s := New(0)
-	if s.Delete("missing") {
-		t.Fatal("expected Delete to report that 'missing' didn't exist")
+	if deleted, err := s.Delete("missing"); err != nil || deleted {
+		t.Fatalf("expected Delete to report that 'missing' didn't exist, got %v, %v", deleted, err)
 	}
 }
 
@@ -68,8 +68,8 @@ func TestDeleteExpired(t *testing.T) {
 	s.SetWithTTL("token", "abc123", 10*time.Millisecond)
 	time.Sleep(20 * time.Millisecond)
 
-	if s.Delete("token") {
-		t.Fatal("expected Delete to treat an expired key as missing")
+	if deleted, err := s.Delete("token"); err != nil || deleted {
+		t.Fatalf("expected Delete to treat an expired key as missing, got %v, %v", deleted, err)
 	}
 }
 
