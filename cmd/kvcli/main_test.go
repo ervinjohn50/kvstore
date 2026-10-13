@@ -72,7 +72,7 @@ func TestREPL(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { ln.Close() })
-	go server.New(store.New()).Serve(ln)
+	go server.New(store.New(0)).Serve(ln)
 
 	c, err := client.Dial(ln.Addr().String())
 	if err != nil {

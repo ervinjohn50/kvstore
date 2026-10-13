@@ -20,7 +20,7 @@ func startServer(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { ln.Close() })
-	go New(store.New()).Serve(ln)
+	go New(store.New(0)).Serve(ln)
 	return ln.Addr().String()
 }
 
