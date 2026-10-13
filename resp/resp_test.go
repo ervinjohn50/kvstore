@@ -126,3 +126,68 @@ func TestWriters(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteCommandRoundTrip(t *testing.T) {
+	args := []string{"SET", "greeting", "hello\r\nworld", ""}
+	var buf bytes.Buffer
+	if err := WriteCommand(&buf, args); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ReadCommand(bufio.NewReader(&buf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, args) {
+		t.Fatalf("got %q, want %q", got, args)
+	}
+}
+
+func TestReadReply(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  Reply
+	}{
+		{"simple string", "+OK\r\n", Reply{Kind: SimpleString, Value: "OK"}},
+		{"error", "-ERR boom\r\n", Reply{Kind: Error, Value: "ERR boom"}},
+		{"integer", ":42\r\n", Reply{Kind: Integer, Value: "42"}},
+		{"bulk string", "$5\r\nalice\r\n", Reply{Kind: BulkString, Value: "alice"}},
+		{"empty bulk string", "$0\r\n\r\n", Reply{Kind: BulkString, Value: ""}},
+		{"null", "$-1\r\n", Reply{Kind: BulkString, Null: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ReadReply(reader(tt.input))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("got %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReadReplyErrors(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  error
+	}{
+		{"empty line", "\r\n", ErrProtocol},
+		{"unknown type", "!oops\r\n", ErrProtocol},
+		{"bad integer", ":abc\r\n", ErrProtocol},
+		{"bad bulk length", "$abc\r\n", ErrProtocol},
+		{"bulk header without body", "$5\r\n", io.ErrUnexpectedEOF},
+		{"mid bulk string", "$5\r\nal", io.ErrUnexpectedEOF},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ReadReply(reader(tt.input))
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("got %v, want %v", err, tt.want)
+			}
+		})
+	}
+}

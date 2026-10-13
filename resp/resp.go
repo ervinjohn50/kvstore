@@ -1,5 +1,7 @@
-// Package resp reads client commands and writes replies in RESP, the Redis
+// Package resp reads and writes commands and replies in RESP, the Redis
 // Serialization Protocol: https://redis.io/docs/latest/develop/reference/protocol-spec/
+// The server uses ReadCommand and the Write... functions; the client uses
+// WriteCommand and ReadReply.
 package resp
 
 import (
@@ -17,8 +19,25 @@ const (
 	maxBulkLen = 1 << 20 // 1 MiB
 )
 
-// ErrProtocol means the client sent bytes that aren't valid RESP.
+// ErrProtocol means the other side sent bytes that aren't valid RESP.
 var ErrProtocol = errors.New("protocol error")
+
+// Kind is a reply's RESP type, identified by its first byte.
+type Kind byte
+
+const (
+	SimpleString Kind = '+'
+	Error        Kind = '-'
+	Integer      Kind = ':'
+	BulkString   Kind = '$'
+)
+
+// Reply is one reply read from the server.
+type Reply struct {
+	Kind  Kind
+	Value string // the status text, error message, digits, or bulk bytes
+	Null  bool   // set for "$-1", the no-value reply
+}
 
 // ReadCommand reads one command, sent as an array of bulk strings
 // (e.g. "*2\r\n$3\r\nGET\r\n$4\r\nname\r\n" becomes ["GET", "name"]).
@@ -50,8 +69,41 @@ func ReadCommand(r *bufio.Reader) ([]string, error) {
 	return args, nil
 }
 
-// readBulkString reads by length instead of scanning for "\r\n", so values
-// can safely contain "\r\n" themselves (RESP is "binary safe").
+// ReadReply reads one reply, in any of the forms the Write... functions produce.
+// A "-ERR ..." reply is returned as a Reply of Kind Error, not as a Go error;
+// the error result is only for network failures and invalid RESP.
+func ReadReply(r *bufio.Reader) (Reply, error) {
+	line, err := readLine(r)
+	if err != nil {
+		return Reply{}, err
+	}
+	if len(line) == 0 {
+		return Reply{}, fmt.Errorf("%w: empty reply line", ErrProtocol)
+	}
+
+	kind, body := Kind(line[0]), line[1:]
+	switch kind {
+	case SimpleString, Error:
+		return Reply{Kind: kind, Value: body}, nil
+	case Integer:
+		if _, err := strconv.ParseInt(body, 10, 64); err != nil {
+			return Reply{}, fmt.Errorf("%w: invalid integer %q", ErrProtocol, body)
+		}
+		return Reply{Kind: kind, Value: body}, nil
+	case BulkString:
+		if body == "-1" {
+			return Reply{Kind: kind, Null: true}, nil
+		}
+		s, err := readBulkBody(r, body)
+		if err != nil {
+			return Reply{}, err
+		}
+		return Reply{Kind: kind, Value: s}, nil
+	default:
+		return Reply{}, fmt.Errorf("%w: unknown reply type %q", ErrProtocol, line)
+	}
+}
+
 func readBulkString(r *bufio.Reader) (string, error) {
 	line, err := readLine(r)
 	if err != nil {
@@ -60,13 +112,23 @@ func readBulkString(r *bufio.Reader) (string, error) {
 	if len(line) == 0 || line[0] != '$' {
 		return "", fmt.Errorf("%w: expected '$', got %q", ErrProtocol, line)
 	}
-	size, err := strconv.Atoi(line[1:])
+	return readBulkBody(r, line[1:])
+}
+
+// readBulkBody reads the bytes that follow a "$<size>" header. It reads by
+// length instead of scanning for "\r\n", so values can safely contain "\r\n"
+// themselves (RESP is "binary safe").
+func readBulkBody(r *bufio.Reader, sizeText string) (string, error) {
+	size, err := strconv.Atoi(sizeText)
 	if err != nil || size < 0 || size > maxBulkLen {
-		return "", fmt.Errorf("%w: invalid bulk length %q", ErrProtocol, line[1:])
+		return "", fmt.Errorf("%w: invalid bulk length %q", ErrProtocol, sizeText)
 	}
 
 	buf := make([]byte, size+2)
 	if _, err := io.ReadFull(r, buf); err != nil {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
 		return "", err
 	}
 	if buf[size] != '\r' || buf[size+1] != '\n' {
@@ -93,6 +155,19 @@ func readLine(r *bufio.Reader) (string, error) {
 		return "", fmt.Errorf("%w: line not terminated by CRLF", ErrProtocol)
 	}
 	return string(b[:len(b)-2]), nil
+}
+
+// WriteCommand writes args as an array of bulk strings, the form ReadCommand expects.
+func WriteCommand(w io.Writer, args []string) error {
+	if _, err := fmt.Fprintf(w, "*%d\r\n", len(args)); err != nil {
+		return err
+	}
+	for _, a := range args {
+		if err := WriteBulkString(w, a); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // WriteSimpleString writes a short status reply like "+OK".

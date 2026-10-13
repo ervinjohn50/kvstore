@@ -1,5 +1,6 @@
-# Binary from `go build`
+# Binaries from `go build`
 /kvstore
+/kvcli
 
 # Test binaries and coverage output
 *.test
