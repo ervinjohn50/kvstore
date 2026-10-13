@@ -1,25 +1,23 @@
 package main
 
 import (
-	"fmt"
+	"flag"
+	"log"
+	"net"
 
+	"github.com/ervinjohn50/kvstore/server"
 	"github.com/ervinjohn50/kvstore/store"
 )
 
 func main() {
-	s := store.New()
+	// Only accept connections from this machine by default, since there's no authentication.
+	addr := flag.String("addr", "127.0.0.1:6380", "address to listen on")
+	flag.Parse()
 
-	s.Set("name", "alice")
-	s.Set("lang", "go")
-
-	val, ok := s.Get("name")
-	fmt.Printf("GET name -> %q (found: %v)\n", val, ok)
-
-	s.Delete("name")
-
-	val, ok = s.Get("name")
-	fmt.Printf("GET name -> %q (found: %v)\n", val, ok)
-
-	val, ok = s.Get("lang")
-	fmt.Printf("GET lang -> %q (found: %v)\n", val, ok)
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("kvstore listening on %s", ln.Addr())
+	log.Fatal(server.New(store.New()).Serve(ln))
 }

@@ -10,6 +10,10 @@ type entry struct {
 	expiresAt time.Time // zero means no expiration
 }
 
+func (e entry) expired() bool {
+	return !e.expiresAt.IsZero() && time.Now().After(e.expiresAt)
+}
+
 // Store is a thread-safe in-memory key-value store with optional TTL support.
 // It uses lazy expiration. Expired keys are only cleaned up when accessed,
 // avoiding the overhead of a background cleanup goroutine.
@@ -52,7 +56,7 @@ func (s *Store) Get(key string) (string, bool) {
 		return "", false
 	}
 
-	if !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
+	if e.expired() {
 		delete(s.data, key)
 		return "", false
 	}
@@ -60,9 +64,16 @@ func (s *Store) Get(key string) (string, bool) {
 	return e.value, true
 }
 
-// Delete removes a key. Deleting a missing key is a no-op.
-func (s *Store) Delete(key string) {
+// Delete removes a key and reports whether it existed.
+// An expired key counts as already gone.
+func (s *Store) Delete(key string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	e, ok := s.data[key]
+	if !ok {
+		return false
+	}
 	delete(s.data, key)
+	return !e.expired()
 }

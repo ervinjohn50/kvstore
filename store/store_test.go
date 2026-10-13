@@ -30,17 +30,30 @@ func TestGetMissing(t *testing.T) {
 func TestDelete(t *testing.T) {
 	s := New()
 	s.Set("name", "alice")
-	s.Delete("name")
 
-	_, ok := s.Get("name")
-	if ok {
+	if !s.Delete("name") {
+		t.Fatal("expected Delete to report that 'name' existed")
+	}
+	if _, ok := s.Get("name"); ok {
 		t.Fatal("expected key 'name' to be deleted")
 	}
 }
 
 func TestDeleteMissing(t *testing.T) {
 	s := New()
-	s.Delete("missing") // should not panic
+	if s.Delete("missing") {
+		t.Fatal("expected Delete to report that 'missing' didn't exist")
+	}
+}
+
+func TestDeleteExpired(t *testing.T) {
+	s := New()
+	s.SetWithTTL("token", "abc123", 10*time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
+
+	if s.Delete("token") {
+		t.Fatal("expected Delete to treat an expired key as missing")
+	}
 }
 
 func TestOverwrite(t *testing.T) {
